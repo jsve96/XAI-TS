@@ -34,7 +34,7 @@ def main(name,classifier_name,device,cf_method):
     X,y,_ = load_data(name)
     clf = load_model(classifier_name,name,device)
     print(clf)
-
+    n_classes = int(len(set(y)))
     func_cf = execute_function(cf_method)
 
     metrics = {k: [] for k in METRICS}
@@ -42,22 +42,26 @@ def main(name,classifier_name,device,cf_method):
     if cf_method == "STFT":
         cf_gen = func_cf(
                         clf,
-                        lam_time=0.05,
-                        lam_perturb=0.5,
-                        lam_clf=10,
-                        lam_entropy = 10,
-                        steps=1000,
+                        lam_time=0.05,#1e-5,
+                        lam_perturb=0.5,#1e-2,
+                        lam_clf=5*n_classes,
+                        lam_entropy = 5*n_classes,
+                        steps=5000,
                         hop_length=1,
-                        n_fft=int(X.shape[2] // int(X.shape[2]/5)),
+                        n_fft=int(X.shape[2] // int(X.shape[2]/4)),
                         device=device,
-                        init_scale=1e-6,
+                        init_scale=1e-3,
                         lr = 0.001
                     )
         BATCH_SIZE=64
-        metrics = generate_STFT(X,METRICS,cf_gen,BATCH_SIZE)
+        metrics = generate_STFT(X,y,METRICS,cf_gen,BATCH_SIZE)
     else:
         print('hello')
-        metrics = generate_cf(X,METRICS,func_cf,clf.model,device=device)
+
+        #metrics = generate_cf(X,METRICS,func_cf,clf.model,device=device)
+        BATCH_SIZE=64
+        metrics = generate_cf_batch(X,METRICS,func_cf,clf.model,device,BATCH_SIZE)
+
 
 
     

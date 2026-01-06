@@ -64,7 +64,7 @@ def tscf_cf(
     
     # Store original sample shape for later restoration
     original_shape = sample.shape
-    original_sample = np.asarray(sample)
+    original_sample = np.asarray(sample.detach().cpu())
     
     # Convert sample to tensor and ensure proper shape (batch, channels, length)
     x_tensor = torch.tensor(original_sample, dtype=torch.float32, device=device)
@@ -232,7 +232,7 @@ def tscf_cf(
     return cf_np, final_probs_np
 
 
-def tscf_batch_cf(
+def cf_ts(
     samples: np.ndarray,
     dataset,
     model: nn.Module,
@@ -296,4 +296,4 @@ def tscf_batch_cf(
             counterfactuals.append(sample)
             predictions.append(None)
     
-    return np.array(counterfactuals), predictions
+    return torch.tensor(counterfactuals), predictions

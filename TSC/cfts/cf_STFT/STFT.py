@@ -66,6 +66,7 @@ class STFTPerturbation(BasePerturbation):
             return_complex=True,
         )
         F, TT = Z.shape[-2], Z.shape[-1]
+        self.F, self.TT = F, TT
 
         # Per-sample learnable perturbation
         self.delta_real = nn.Parameter(init_scale * torch.randn(B, C, F, TT))
@@ -122,7 +123,6 @@ class STFTPerturbation(BasePerturbation):
 
 
 
-    from tqdm import tqdm
 
 class TSCounterfactualGenerator:
     def __init__(
@@ -179,6 +179,13 @@ class TSCounterfactualGenerator:
         logits_orig = self.model(x)
         y_orig = logits_orig.argmax(dim=1)   # (B,)
 
+        # Mask: 1 = still optimizing, 0 = frozen
+        #active = torch.ones(B, device=self.device)
+        #best_validity = torch.zeros(B, device=self.device)
+
+
+        #parameter shape (B,1,Px,Py) --> zero gradients if valid cf
+        #Px, Py = perturb.F, perturb.TT
 
         for _ in tqdm(range(self.steps)):
             opt.zero_grad()
@@ -186,7 +193,6 @@ class TSCounterfactualGenerator:
             # Counterfactual
             x_cf = perturb(x)
             logits = self.model(x_cf)
-
 
             #Classification loss (per-sample)
             clf_loss = self.loss_func(logits, target)
@@ -201,14 +207,6 @@ class TSCounterfactualGenerator:
             probas = torch.softmax(logits, dim=-1)
             entropy = (-(probas * torch.log(probas + 1e-8)).sum(dim=1))#.pow(0.5)
 
-            # p_orig = probas.gather(1, y_orig[:, None]).squeeze(1)   # (B,)
-            # p_tgt  = probas.gather(1, target[:, None]).squeeze(1)   # (B,)
-            # #Normalize to probability dist
-            # p_pair = torch.stack([p_orig, p_tgt], dim=1)             # (B, 2)
-            # p_pair = p_pair / (p_pair.sum(dim=1, keepdim=True) + 1e-8)
-            # entropy = -(p_pair * torch.log(p_pair + 1e-8)).sum(dim=1)  # (B,)
-
-            # Adaptive lambdas (optional)
             lr_clf = self.lam_clf if self.lam_clf is not None else 1.0
             lr_time = self.lam_time if self.lam_time is not None else 0.05
             lr_perturb = self.lam_perturb if self.lam_perturb is not None else 0.5
@@ -216,21 +214,41 @@ class TSCounterfactualGenerator:
 
             # Total loss (mean over batch)
             loss = (
-                lr_clf * clf_loss.pow(2)
+                10*lr_clf * clf_loss.pow(2)
                 + lr_perturb * pert_reg.pow(2)
                 + lr_time * time_reg.pow(2)
                 - lr_entropy * entropy
             ).sum()
 
+            #loss = (loss_per_sample * active).sum()
+
             loss.backward()
+            # for param in perturb.parameters():
+            #     #print(param.grad.shape)
+            #     param.grad *= active.view(B,1,1,1).expand(-1,1,Px,Py)
+
             opt.step()
 
             losses.append(loss.item())
 
+
+            # with torch.no_grad():
+            #     probs = torch.softmax(logits, dim=1)
+            #     preds = probs.argmax(dim=1)
+            #     validity = probs[torch.arange(B), target]
+
+            #     improved = validity > best_validity
+            #     best_validity[improved] = validity[improved]
+
+            #     newly_done = (preds == target) & (active == 1)
+            #     active[newly_done] = 0
+
             # Small-change snapping (optional)
             x_cf = torch.where(
-                (x_cf - x).pow(2) < 1e-4, x, x_cf
+                (x_cf - x).pow(2) < 1e-6, x, x_cf
             )
+
+        #print(active)
 
         return {
             "x_cf": x_cf.detach(),
